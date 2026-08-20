@@ -14,7 +14,8 @@ button { font: inherit; }
 .top-action, .signup { border: 1px solid #d7dce1; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .signup { background: #2f7ee6; color: #fff; border-color: #2f7ee6; }
 .tabs { display: flex; justify-content: center; gap: 6px; padding: 8px 12px; background: #fff; border-bottom: 1px solid #e6e9ed; overflow-x: auto; }
-.tab { border: 0; background: transparent; padding: 10px 16px; white-space: nowrap; cursor: pointer; color: #6b7280; border-bottom: 2px solid transparent; }
+.tab { border: 0; background: transparent; padding: 10px 16px; white-space: nowrap; cursor: pointer; color: #6b7280; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
+.tab-icon { color: #e53935; font-size: 18px; line-height: 1; filter: saturate(1.4); }
 .tab.active { color: #242b33; font-weight: 600; border-bottom-color: #2f7ee6; }
 .workspace { flex: 1; display: grid; place-items: center; padding: 32px 16px; }
 .welcome-card { width: min(680px, 100%); background: #fff; border: 1px solid #e6e9ed; border-radius: 12px; padding: 28px; text-align: center; box-shadow: 0 6px 24px rgba(20, 30, 40, .04); }
@@ -28,7 +29,8 @@ button { font: inherit; }
 .drawer-tabs .active { color: #242b33; border-bottom: 2px solid #2f7ee6; }
 .empty-state { display: grid; place-items: center; min-height: 130px; color: #667085; text-align: center; }
 .drawer-handle { position: fixed; z-index: 3; bottom: 58px; left: 50%; transform: translateX(-50%); border: 0; background: #fff; width: 96px; height: 28px; border-radius: 14px 14px 0 0; box-shadow: 0 -1px 3px rgba(0,0,0,.08); cursor: pointer; font-size: 20px; }
-.runbar { position: fixed; z-index: 2; left: 0; right: 0; bottom: 0; height: 58px; display: grid; grid-template-columns: 150px 1fr; background: #fff; border-top: 1px solid #e6e9ed; }
+.runbar { position: fixed; z-index: 2; left: 0; right: 0; bottom: 0; height: 58px; display: grid; grid-template-columns: 150px 1fr 150px; background: #fff; border-top: 1px solid #e6e9ed; }
 .run-button { border: 0; background: #fff; border-right: 1px solid #e6e9ed; font-weight: 600; font-size: 16px; cursor: pointer; }
 .run-status { display: grid; place-items: center; color: #667085; }
-@media (max-width: 680px) { .top-action { display: none; } .tabs { justify-content: flex-start; } .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .runbar { grid-template-columns: 120px 1fr; } }
+.stop-button { border-right: 0; border-left: 1px solid #e6e9ed; }
+@media (max-width: 680px) { .top-action { display: none; } .tabs { justify-content: flex-start; } .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .runbar { grid-template-columns: 120px 1fr 120px; } .run-button { font-size: 14px; } }
