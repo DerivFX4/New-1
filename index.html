@@ -3,11 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#071b3a" />
     <title>VintelFX</title>
   </head>
   <body>
     <div id="root"></div>
+    <div id="vintelfx-loader" aria-label="Loading VintelFX">
+      <div class="vintelfx-logo" aria-label="VintelFX logo"><svg viewBox="0 0 120 120" role="img"><circle cx="60" cy="60" r="54" fill="#071b3a"/><circle cx="60" cy="60" r="48" fill="none" stroke="#e53935" stroke-width="4"/><path d="M28 38h14l10 31 10-31h14L61 83H48z" fill="#fff"/><path d="M77 38h16l-12 45H65z" fill="#e53935"/><path d="M84 38h13l-8 28H76z" fill="#fff"/></svg></div>
+      <div class="loader-title">Welcome to VintelFX</div>
+      <div class="loader-subtitle">Your Ultimate trusted Deriv third party website</div>
+      <div class="loader-progress"><div id="loader-fill"></div><span id="loader-percent">0%</span></div>
+    </div>
+    <script>
+      (function(){var start=Date.now(),duration=4800,fill=document.getElementById('loader-fill'),pct=document.getElementById('loader-percent'),loader=document.getElementById('vintelfx-loader');function tick(){var p=Math.min(100,Math.round(((Date.now()-start)/duration)*100));fill.style.width=p+'%';pct.textContent=p+'%';if(p<100)requestAnimationFrame(tick);else setTimeout(function(){loader.classList.add('loader-hidden');},120);}requestAnimationFrame(tick);})();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
