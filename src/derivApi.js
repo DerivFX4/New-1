@@ -10,7 +10,7 @@ export class DerivConnection {
 
   connect() {
     if (!this.appId) {
-      this.onStatus?.('App ID not configured');
+      this.onStatus?.('DERIV_APP_ID not configured');
       return;
     }
     this.disconnect();
@@ -39,5 +39,7 @@ export class DerivConnection {
 }
 
 export const derivConfig = {
-  appId: import.meta.env.PUBLIC_DERIV_APP_ID || '',
+  appId: import.meta.env.DERIV_APP_ID || '',
+  redirectUrl: import.meta.env.DERIV_REDIRECT_URL || '',
+  oauthScope: import.meta.env.DERIV_OAUTH_SCOPE || '',
 };
