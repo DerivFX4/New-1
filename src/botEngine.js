@@ -1,89 +1,11 @@
 export class BotEngine {
-  constructor({ trading, currency, onEvent }) {
-    this.trading = trading;
-    this.currency = currency;
-    this.onEvent = onEvent || (() => {});
-    this.running = false;
-    this.stake = 1;
-    this.baseStake = 1;
-    this.multiplier = 2;
-    this.duration = 5;
-    this.symbol = 'R_10';
-    this.contractType = 'DIGITDIFF';
-    this.barrier = 0;
-    this.losses = 0;
-    this.maxLosses = 3;
-  }
-
-  emit(type,message,data={}) { this.onEvent({type,message,...data}); }
-
-  read(xml) {
-    const doc = new DOMParser().parseFromString(xml,'text/xml');
-    const blocks=[...doc.querySelectorAll('block')];
-    const get=(type,name,def)=>blocks.find(b=>b.getAttribute('type')===type)?.querySelector(`field[name="${name}"]`)?.textContent ?? def;
-    this.symbol=get('digit_strategy','SYMBOL',this.symbol);
-    this.contractType=get('digit_contract','CONTRACT',this.contractType);
-    this.barrier=Number(get('digit_barrier','BARRIER',this.barrier));
-    this.baseStake=Number(get('digit_stake','STAKE',this.baseStake));
-    this.stake=this.baseStake;
-    this.duration=Number(get('digit_duration','DURATION',this.duration));
-    this.multiplier=Number(get('digit_recovery','MULTIPLIER',this.multiplier));
-    this.maxLosses=Number(get('recovery_stop','LOSSES',this.maxLosses));
-  }
-
-  async execute(xmlText) {
-    if(!this.trading) throw new Error('Trading connection is not ready');
-    this.read(xmlText);
-    this.running=true;
-    this.emit('start',`Strategy ${this.contractType} on ${this.symbol}`,{symbol:this.symbol,stake:this.stake});
-
-    while(this.running){
-      const proposal=await this.trading.proposal({
-        symbol:this.symbol,
-        contractType:this.contractType,
-        amount:this.stake,
-        currency:this.currency,
-        duration:this.duration,
-        durationUnit:'t',
-        barrier:['DIGITDIFF','DIGITMATCH','DIGITOVER','DIGITUNDER'].includes(this.contractType)?String(this.barrier):undefined
-      });
-
-      const bought=await this.trading.buy(proposal.id,proposal.ask_price);
-      this.emit('buy',`Bought ${this.contractType}`,{contract:bought});
-
-      if(bought.contract_id){
-        await this.trading.openContract(bought.contract_id);
-      }
-
-      const result=await this.waitResult();
-      if(result>0){
-        this.losses=0;
-        this.stake=this.baseStake;
-        this.emit('win','Winning contract',{profit:result});
-      }else{
-        this.losses++;
-        this.stake=this.stake*this.multiplier;
-        this.emit('loss','Recovery applied',{nextStake:this.stake,losses:this.losses});
-        if(this.losses>=this.maxLosses){
-          this.stop();
-        }
-      }
-    }
-  }
-
-  waitResult(){
-    return new Promise(resolve=>{
-      const handler=e=>{
-        if(e.type==='contract_result'){
-          resolve(Number(e.profit||0));
-        }
-      };
-      this.resultHandler=handler;
-    });
-  }
-
-  stop(){
-    this.running=false;
-    this.emit('stop','Bot stopped');
-  }
+  constructor({ trading, currency, onEvent }) { this.trading=trading; this.currency=currency; this.onEvent=onEvent||(()=>{}); this.running=false; this.symbol='R_10'; this.contractType='DIGITDIFF'; this.stake=1; this.baseStake=1; this.duration=1; this.barrier=1; this.multiplier=2; this.lossLimit=3; this.losses=0; this.currentContract=null; this.resultWaiters=new Map(); }
+  emit(type,message,data={}){this.onEvent({type,message,...data});}
+  parse(xmlText){const doc=new DOMParser().parseFromString(xmlText,'text/xml'); const blocks=[...doc.querySelectorAll('block')]; const field=(type,name,def)=>blocks.find(b=>b.getAttribute('type')===type)?.querySelector(`field[name="${name}"]`)?.textContent??def; this.symbol=field('digit_strategy','SYMBOL',this.symbol); this.contractType=field('digit_contract','CONTRACT',this.contractType); this.barrier=Number(field('digit_barrier','BARRIER',this.barrier)); this.stake=Number(field('digit_stake','STAKE',this.stake)); this.baseStake=this.stake; this.duration=Number(field('digit_duration','DURATION',this.duration)); this.multiplier=Number(field('digit_recovery','MULTIPLIER',this.multiplier)); this.lossLimit=Number(field('recovery_stop','LOSSES',this.lossLimit)); return {blocks}; }
+  async waitForResult(contractId,timeout=120000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.resultWaiters.delete(String(contractId));reject(new Error('Timed out waiting for contract result'));},timeout);this.resultWaiters.set(String(contractId),{resolve,reject,timer});});}
+  handleMessage(data){const p=data?.proposal_open_contract;if(!p)return; const id=String(p.contract_id||''); if(!id)return; const done=p.is_sold||['won','lost','sold'].includes(String(p.status)); if(!done)return; const waiter=this.resultWaiters.get(id); if(waiter){clearTimeout(waiter.timer);this.resultWaiters.delete(id);waiter.resolve(p);}}
+  async execute(xmlText){if(!this.trading)throw new Error('Trading connection is not ready');if(!xmlText)throw new Error('Build a bot before running it');this.parse(xmlText);this.running=true;this.losses=0;this.emit('start',`Bot started · ${this.symbol} · ${this.contractType}`,{symbol:this.symbol,contractType:this.contractType,stake:this.stake,duration:this.duration,barrier:this.barrier});
+    while(this.running){if(this.losses>=this.lossLimit){this.emit('limit','Loss limit reached · bot stopped',{losses:this.losses});break;}const proposal=await this.trading.proposal({symbol:this.symbol,contractType:this.contractType,amount:this.stake,currency:this.currency,duration:this.duration,durationUnit:'t',basis:'stake',barrier:this.barrier});if(!this.running)break;this.emit('proposal','Proposal received',{proposal});const bought=await this.trading.buy(proposal.id,proposal.ask_price);this.currentContract=bought;const id=bought.contract_id||bought.transaction_id;this.emit('buy',`Contract purchased · ${id}`,{contract:bought});if(!bought.contract_id)throw new Error('Deriv did not return a contract ID');await this.trading.openContract(bought.contract_id);const result=await this.waitForResult(bought.contract_id);const profit=Number(result.profit||0);const won=String(result.status).toLowerCase()==='won'||profit>0;this.emit('result',`${won?'WIN':'LOSS'} · ${profit}`,{result,won,profit,losses:this.losses});if(won){this.losses=0;this.stake=this.baseStake;}else{this.losses+=1;this.stake=this.baseStake*Math.pow(this.multiplier,this.losses);this.emit('recovery',`Loss ${this.losses} · next stake ${this.stake}`,{losses:this.losses,nextStake:this.stake});}if(!this.running)break;}
+    this.running=false;this.emit('stop','Bot stopped',{losses:this.losses});return this.currentContract; }
+  stop(){this.running=false;this.emit('stop','Bot stopped');}
 }
