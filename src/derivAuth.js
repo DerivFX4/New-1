@@ -4,13 +4,31 @@ function randomState() {
   return crypto.randomUUID();
 }
 
-export function startDerivOAuth() {
+function base64Url(bytes) {
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function createPkcePair() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const verifier = base64Url(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return { verifier, challenge: base64Url(new Uint8Array(digest)) };
+}
+
+export async function startDerivOAuth() {
   const appId = import.meta.env.DERIV_APP_ID;
   const redirect = import.meta.env.DERIV_REDIRECT_URL;
-  const scope = import.meta.env.DERIV_OAUTH_SCOPE || 'trade application_read payment';
+  const scope = import.meta.env.DERIV_OAUTH_SCOPE || 'trade';
+
+  if (!appId || !redirect) throw new Error('Deriv OAuth configuration is incomplete');
 
   const state = randomState();
+  const { verifier, challenge } = await createPkcePair();
   sessionStorage.setItem('deriv_oauth_state', state);
+  sessionStorage.setItem('deriv_oauth_verifier', verifier);
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -18,6 +36,8 @@ export function startDerivOAuth() {
     redirect_uri: redirect,
     scope,
     state,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
   });
 
   window.location.href = `${AUTH_URL}?${params.toString()}`;
@@ -28,8 +48,9 @@ export function readOAuthCallback() {
   const code = params.get('code');
   const state = params.get('state');
   const saved = sessionStorage.getItem('deriv_oauth_state');
+  const verifier = sessionStorage.getItem('deriv_oauth_verifier');
 
-  if (!code || !state || state !== saved) return null;
+  if (!code || !state || !saved || state !== saved || !verifier) return null;
 
-  return { code, state };
+  return { code, state, verifier };
 }
