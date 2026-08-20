@@ -8,9 +8,8 @@ export default async function handler(req, res) {
 
   const appId = process.env.DERIV_APP_ID;
   const redirectUri = process.env.DERIV_REDIRECT_URL;
-  const clientSecret = process.env.DERIV_CLIENT_SECRET;
 
-  if (!appId || !redirectUri || !clientSecret) {
+  if (!appId || !redirectUri) {
     return res.status(500).json({ error: 'Deriv OAuth server configuration is incomplete' });
   }
 
@@ -18,7 +17,6 @@ export default async function handler(req, res) {
     grant_type: 'authorization_code',
     code,
     client_id: appId,
-    client_secret: clientSecret,
     code_verifier,
     redirect_uri: redirectUri,
   });
