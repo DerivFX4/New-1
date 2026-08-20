@@ -5,41 +5,85 @@ export class BotEngine {
     this.onEvent = onEvent || (() => {});
     this.running = false;
     this.stake = 1;
+    this.baseStake = 1;
+    this.multiplier = 2;
     this.duration = 5;
     this.symbol = 'R_10';
-    this.contractType = 'CALL';
-    this.currentContract = null;
+    this.contractType = 'DIGITDIFF';
+    this.barrier = 0;
+    this.losses = 0;
+    this.maxLosses = 3;
   }
 
-  emit(type, message, data = {}) { this.onEvent({ type, message, ...data }); }
+  emit(type,message,data={}) { this.onEvent({type,message,...data}); }
+
+  read(xml) {
+    const doc = new DOMParser().parseFromString(xml,'text/xml');
+    const blocks=[...doc.querySelectorAll('block')];
+    const get=(type,name,def)=>blocks.find(b=>b.getAttribute('type')===type)?.querySelector(`field[name="${name}"]`)?.textContent ?? def;
+    this.symbol=get('digit_strategy','SYMBOL',this.symbol);
+    this.contractType=get('digit_contract','CONTRACT',this.contractType);
+    this.barrier=Number(get('digit_barrier','BARRIER',this.barrier));
+    this.baseStake=Number(get('digit_stake','STAKE',this.baseStake));
+    this.stake=this.baseStake;
+    this.duration=Number(get('digit_duration','DURATION',this.duration));
+    this.multiplier=Number(get('digit_recovery','MULTIPLIER',this.multiplier));
+    this.maxLosses=Number(get('recovery_stop','LOSSES',this.maxLosses));
+  }
 
   async execute(xmlText) {
-    if (!this.trading) throw new Error('Trading connection is not ready');
-    if (!xmlText) throw new Error('Build a bot before running it');
-    const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
-    const blocks = [...doc.querySelectorAll('block')];
-    const volatility = blocks.find(b => b.getAttribute('type') === 'market_volatility');
-    const contract = blocks.find(b => b.getAttribute('type') === 'trade_contract');
-    const purchase = blocks.find(b => b.getAttribute('type') === 'trade_purchase');
-    const sell = blocks.find(b => b.getAttribute('type') === 'trade_sell');
-    if (volatility) this.symbol = volatility.querySelector('field[name="SYMBOL"]')?.textContent || this.symbol;
-    if (contract) this.duration = Number(contract.querySelector('field[name="DURATION"]')?.textContent || this.duration);
-    if (purchase) this.stake = Number(purchase.querySelector('field[name="AMOUNT"]')?.textContent || this.stake);
-    this.running = true;
-    this.emit('start', `Bot started on ${this.symbol}`, { symbol: this.symbol, stake: this.stake, duration: this.duration });
-    const proposal = await this.trading.proposal({ symbol: this.symbol, contractType: this.contractType, amount: this.stake, currency: this.currency, duration: this.duration, durationUnit: 't' });
-    if (!this.running) return null;
-    this.emit('proposal', `Proposal received · ${proposal.ask_price} ${this.currency}`, { proposal });
-    const bought = await this.trading.buy(proposal.id, proposal.ask_price);
-    this.currentContract = bought;
-    this.emit('buy', `Contract purchased · ${bought.contract_id || bought.transaction_id}`, { contract: bought });
-    if (bought.contract_id) await this.trading.openContract(bought.contract_id);
-    if (sell && bought.contract_id && this.running) {
-      const sold = await this.trading.sell(bought.contract_id, 0);
-      this.emit('sell', `Contract sold`, { result: sold });
+    if(!this.trading) throw new Error('Trading connection is not ready');
+    this.read(xmlText);
+    this.running=true;
+    this.emit('start',`Strategy ${this.contractType} on ${this.symbol}`,{symbol:this.symbol,stake:this.stake});
+
+    while(this.running){
+      const proposal=await this.trading.proposal({
+        symbol:this.symbol,
+        contractType:this.contractType,
+        amount:this.stake,
+        currency:this.currency,
+        duration:this.duration,
+        durationUnit:'t',
+        barrier:['DIGITDIFF','DIGITMATCH','DIGITOVER','DIGITUNDER'].includes(this.contractType)?String(this.barrier):undefined
+      });
+
+      const bought=await this.trading.buy(proposal.id,proposal.ask_price);
+      this.emit('buy',`Bought ${this.contractType}`,{contract:bought});
+
+      if(bought.contract_id){
+        await this.trading.openContract(bought.contract_id);
+      }
+
+      const result=await this.waitResult();
+      if(result>0){
+        this.losses=0;
+        this.stake=this.baseStake;
+        this.emit('win','Winning contract',{profit:result});
+      }else{
+        this.losses++;
+        this.stake=this.stake*this.multiplier;
+        this.emit('loss','Recovery applied',{nextStake:this.stake,losses:this.losses});
+        if(this.losses>=this.maxLosses){
+          this.stop();
+        }
+      }
     }
-    return bought;
   }
 
-  stop() { this.running = false; this.emit('stop', 'Bot stopped'); }
+  waitResult(){
+    return new Promise(resolve=>{
+      const handler=e=>{
+        if(e.type==='contract_result'){
+          resolve(Number(e.profit||0));
+        }
+      };
+      this.resultHandler=handler;
+    });
+  }
+
+  stop(){
+    this.running=false;
+    this.emit('stop','Bot stopped');
+  }
 }
