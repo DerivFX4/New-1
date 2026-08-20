@@ -11,6 +11,7 @@
   "dependencies": {
     "@rsbuild/core": "latest",
     "@rsbuild/plugin-react": "latest",
+    "blockly": "latest",
     "react": "latest",
     "react-dom": "latest"
   }
