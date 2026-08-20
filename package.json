@@ -1,0 +1,17 @@
+{
+  "name": "vintelfx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "preview": "rsbuild preview"
+  },
+  "dependencies": {
+    "@rsbuild/core": "latest",
+    "@rsbuild/plugin-react": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}
