@@ -9,186 +9,58 @@ import { getSession, clearSession, loginWithPAT } from './derivSession';
 import './styles.css';
 
 function App() {
-  const [active, setActive] = useState('Dashboard');
-  const [session, setSession] = useState(getSession());
-  const [accounts, setAccounts] = useState([]);
-  const [selectedId, setSelectedId] = useState('');
-  const [balance, setBalance] = useState(null);
-  const [pat, setPat] = useState('');
-  const [showPat, setShowPat] = useState(false);
-  const [status, setStatus] = useState('Market disconnected');
-  const [error, setError] = useState('');
-  const [tick, setTick] = useState(null);
-  const [botState, setBotState] = useState('idle');
-  const [tradeBusy, setTradeBusy] = useState(false);
-  const [tradeMessage, setTradeMessage] = useState('');
-  const [contract, setContract] = useState(null);
-  const connection = useRef(null);
-  const trading = useRef(null);
+  const [active, setActive] = useState('Dashboard'); const [session, setSession] = useState(getSession());
+  const [accounts, setAccounts] = useState([]); const [selectedId, setSelectedId] = useState('');
+  const [balance, setBalance] = useState(null); const [pat, setPat] = useState(''); const [showPat, setShowPat] = useState(false);
+  const [status, setStatus] = useState('Market disconnected'); const [error, setError] = useState(''); const [tick, setTick] = useState(null);
+  const [botState, setBotState] = useState('idle'); const [tradeBusy, setTradeBusy] = useState(false); const [tradeMessage, setTradeMessage] = useState('');
+  const [contract, setContract] = useState(null); const [contractState, setContractState] = useState(null); const [contractProfit, setContractProfit] = useState(null);
+  const connection = useRef(null); const trading = useRef(null);
 
+  useEffect(() => { handleOAuthCallback().then(ok => ok && setSession(getSession())).catch(e => setError(e.message)); }, []);
   useEffect(() => {
-    handleOAuthCallback().then(connected => {
-      if (connected) setSession(getSession());
-    }).catch(err => setError(err.message));
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError('');
-    setAccounts([]);
-    setSelectedId('');
-    setBalance(null);
-    setContract(null);
+    let cancelled = false; setError(''); setAccounts([]); setSelectedId(''); setBalance(null); setContract(null); setContractState(null); setContractProfit(null);
     if (!session.token) return undefined;
-
-    getAccounts(session.token).then(list => {
-      if (cancelled) return;
-      setAccounts(list);
-      setSelectedId(list[0]?.account_id || list[0]?.id || '');
-    }).catch(err => { if (!cancelled) setError(err.message); });
+    getAccounts(session.token).then(list => { if (!cancelled) { setAccounts(list); setSelectedId(list[0]?.account_id || list[0]?.id || ''); } }).catch(e => !cancelled && setError(e.message));
     return () => { cancelled = true; };
   }, [session.token]);
 
-  const selectedAccount = accounts.find(account => (account.account_id || account.id) === selectedId) || null;
-
+  const selectedAccount = accounts.find(a => (a.account_id || a.id) === selectedId) || null;
   useEffect(() => {
-    connection.current?.disconnect();
-    setBalance(null);
-    setContract(null);
-    trading.current = null;
-
-    if (!session.token || !selectedAccount) {
-      setStatus(session.token ? 'Choose a Deriv account' : 'Market disconnected');
-      return undefined;
-    }
-
-    const connectionInstance = new DerivConnection({
-      appId: derivConfig.appId,
-      accessToken: session.token,
-      accountId: selectedAccount.account_id || selectedAccount.id,
-      onStatus: setStatus,
-      onTick: setTick,
-      onBalance: setBalance,
-      onMessage: data => trading.current?.handleMessage(data),
-    });
-    const tradingInstance = new DerivTrading(connectionInstance);
-    connection.current = connectionInstance;
-    trading.current = tradingInstance;
-    connectionInstance.connect().catch(err => setStatus(err.message));
-    return () => connectionInstance.disconnect();
+    connection.current?.disconnect(); setBalance(null); setContract(null); setContractState(null); setContractProfit(null); trading.current = null;
+    if (!session.token || !selectedAccount) { setStatus(session.token ? 'Choose a Deriv account' : 'Market disconnected'); return undefined; }
+    const c = new DerivConnection({ appId: derivConfig.appId, accessToken: session.token, accountId: selectedAccount.account_id || selectedAccount.id, onStatus: setStatus, onTick: setTick, onBalance: setBalance, onMessage: data => { trading.current?.handleMessage(data); if (data.proposal_open_contract) { const p = data.proposal_open_contract; setContractState(p.status || (p.is_sold ? 'sold' : 'open')); setContractProfit(p.profit ?? p.bid_price ?? null); if (p.is_sold || p.status === 'won' || p.status === 'lost' || p.status === 'sold') setBotState('idle'); } } });
+    connection.current = c; trading.current = new DerivTrading(c); c.connect().catch(e => setStatus(e.message)); return () => c.disconnect();
   }, [session.token, selectedId]);
 
-  const loginPAT = async () => {
-    try {
-      setError('');
-      const token = await loginWithPAT(pat);
-      setSession({ token, type: 'pat', expiresAt: null });
-      setPat('');
-      setShowPat(false);
-    } catch (err) { setError(err.message); }
-  };
-
-  const loginOAuth = async () => {
-    try { setError(''); await startDerivOAuth(); }
-    catch (err) { setError(err.message); }
-  };
-
-  const logout = () => {
-    connection.current?.disconnect();
-    clearSession();
-    setSession({ token: null, type: null, expiresAt: null });
-    setAccounts([]);
-    setSelectedId('');
-    setBalance(null);
-    setContract(null);
-  };
+  const loginPAT = async () => { try { setError(''); const token = await loginWithPAT(pat); setSession({ token, type: 'pat', expiresAt: null }); setPat(''); setShowPat(false); } catch(e) { setError(e.message); } };
+  const loginOAuth = async () => { try { setError(''); await startDerivOAuth(); } catch(e) { setError(e.message); } };
+  const logout = () => { connection.current?.disconnect(); clearSession(); setSession({token:null,type:null,expiresAt:null}); setAccounts([]); setSelectedId(''); setBalance(null); setContract(null); };
 
   const requestTrade = async () => {
     if (!selectedAccount || !trading.current) return setError('Connect a Deriv account first');
-    setTradeBusy(true);
-    setError('');
-    setTradeMessage('Requesting live proposal…');
+    setTradeBusy(true); setError(''); setTradeMessage('Requesting live proposal…'); setContractState(null); setContractProfit(null);
     try {
       const currency = balance?.currency || selectedAccount.currency || 'USD';
-      const proposal = await trading.current.proposal({
-        symbol: 'R_100',
-        contractType: 'CALL',
-        amount: 1,
-        currency,
-        duration: 5,
-        durationUnit: 't',
-      });
-      setTradeMessage(`Proposal received: ${proposal.id} · Ask ${proposal.ask_price}`);
-      const bought = await trading.current.buy(proposal.id, proposal.ask_price);
-      setContract(bought);
-      setBotState('running');
-      setTradeMessage(`Contract purchased: ${bought.contract_id || bought.transaction_id || bought.buy_price}`);
-      if (bought.contract_id) await trading.current.openContract(bought.contract_id);
-    } catch (err) {
-      setError(err.message);
-      setTradeMessage('Trade not executed');
-    } finally { setTradeBusy(false); }
+      const p = await trading.current.proposal({ symbol:'R_100', contractType:'CALL', amount:1, currency, duration:5, durationUnit:'t' });
+      setTradeMessage(`Proposal received · ${p.ask_price} ${currency}`);
+      const b = await trading.current.buy(p.id, p.ask_price); setContract(b); setBotState('running');
+      setTradeMessage(`Contract purchased · ID ${b.contract_id || b.transaction_id}`); if (b.contract_id) await trading.current.openContract(b.contract_id);
+    } catch(e) { setError(e.message); setTradeMessage('Trade not executed'); } finally { setTradeBusy(false); }
   };
+  const sellContract = async () => { if (!contract?.contract_id || !trading.current) return; setTradeBusy(true); try { const s = await trading.current.sell(contract.contract_id, 0); setTradeMessage(`Contract sold · ${s?.sold_for ?? s?.sold_for_price ?? ''}`); setContractState('sold'); setBotState('idle'); } catch(e) { setError(e.message); } finally { setTradeBusy(false); } };
 
-  const accountCurrency = balance?.currency || selectedAccount?.currency || 'USD';
-  const accountBalance = balance?.balance ?? selectedAccount?.balance ?? '--';
-  const accountType = selectedAccount?.account_type || (selectedAccount?.is_demo ? 'demo' : 'real');
-  const isDemo = String(accountType).toLowerCase() === 'demo';
-
+  const currency = balance?.currency || selectedAccount?.currency || 'USD'; const amount = balance?.balance ?? selectedAccount?.balance ?? '--';
+  const type = String(selectedAccount?.account_type || (selectedAccount?.is_demo ? 'demo' : 'real')).toLowerCase(); const isDemo = type === 'demo';
   return <div className="app-shell">
-    <header className="topbar">
-      <button className="icon-button">☰</button>
-      <div className="brand">VintelFX</div>
-      <div className="spacer" />
-      {!session.token ? <>
-        <button className="signup" onClick={loginOAuth}>Login with Deriv</button>
-        <button className="top-action" onClick={() => setShowPat(!showPat)}>PAT</button>
-      </> : <>
-        <div className="account-pill">{accountCurrency} {accountBalance} · {isDemo ? 'Demo' : 'Real'} ▼</div>
-        <button className="top-action" onClick={logout}>Logout</button>
-      </>}
-    </header>
-
-    {showPat && !session.token && <div className="pat-panel"><input type="password" value={pat} onChange={e => setPat(e.target.value)} placeholder="Deriv PAT" autoComplete="off"/><button onClick={loginPAT}>Connect</button></div>}
-
-    {session.token && <div className="account-bar">
-      <label htmlFor="deriv-account">Account</label>
-      <select id="deriv-account" value={selectedId} onChange={e => setSelectedId(e.target.value)} disabled={!accounts.length}>
-        {!accounts.length && <option value="">Loading Deriv accounts…</option>}
-        {accounts.map(account => {
-          const id = account.account_id || account.id;
-          const type = String(account.account_type || (account.is_demo ? 'demo' : 'real')).toLowerCase();
-          return <option key={id} value={id}>{type === 'demo' ? 'Demo' : 'Real'} · {account.currency || 'USD'} · {id}</option>;
-        })}
-      </select>
-      <span className="account-status">{status}</span>
-    </div>}
-
-    {error && <div className="error-banner">{error}</div>}
-    {tradeMessage && <div className="trade-banner">{tradeMessage}</div>}
-
-    <nav className="tabs">{['Dashboard','Bot Builder','Chart','Tutorials'].map(tab => <button key={tab} className={active === tab ? 'tab active' : 'tab'} onClick={() => setActive(tab)}>{tab}</button>)}</nav>
-
-    <main className="workspace">
-      <section className="welcome-card">
-        <div>{status}</div>
-        <h1>{active}</h1>
-        {session.token && selectedAccount && <div className="live-account"><strong>{isDemo ? 'Demo account' : 'Real account'}</strong><span>{accountCurrency} {Number(accountBalance) || accountBalance}</span></div>}
-        {tick && <div>R_100: {tick.quote}</div>}
-        {contract && <div>Contract: {contract.contract_id || contract.transaction_id || 'active'}</div>}
-        <p>{session.token ? 'Authenticated Deriv account session connected.' : 'Connect your Deriv account to load live balances and trading access.'}</p>
-      </section>
-
-      {active === 'Bot Builder' && <section className="welcome-card">
-        <h2>Live Deriv Trade</h2>
-        <p>R_100 · CALL · 1 {accountCurrency} · 5 ticks</p>
-        <button className="run-button" disabled={tradeBusy || !session.token || !selectedAccount} onClick={requestTrade}>{tradeBusy ? 'Working…' : 'Request Proposal & Buy'}</button>
-        <small>This sends a real order to the selected Demo or Real account. Use Demo first to test.</small>
-      </section>}
-    </main>
-
-    <footer className="runbar"><button className="run-button" disabled={!session.token || tradeBusy} onClick={() => setBotState(botState === 'running' ? 'paused' : 'running')}>{botState === 'running' ? '⏸ Pause' : '▶ Run'}</button><div className="run-status">{botState}</div></footer>
+    <header className="topbar"><button className="icon-button">☰</button><div className="brand">VintelFX</div><div className="spacer" />{!session.token ? <><button className="signup" onClick={loginOAuth}>Login with Deriv</button><button className="top-action" onClick={()=>setShowPat(!showPat)}>PAT</button></> : <><div className="account-pill">{currency} {amount} · {isDemo?'Demo':'Real'} ▼</div><button className="top-action" onClick={logout}>Logout</button></>}</header>
+    {showPat && !session.token && <div className="pat-panel"><input type="password" value={pat} onChange={e=>setPat(e.target.value)} placeholder="Deriv PAT" autoComplete="off"/><button onClick={loginPAT}>Connect</button></div>}
+    {session.token && <div className="account-bar"><label htmlFor="deriv-account">Account</label><select id="deriv-account" value={selectedId} onChange={e=>setSelectedId(e.target.value)} disabled={!accounts.length}>{!accounts.length&&<option value="">Loading Deriv accounts…</option>}{accounts.map(a=>{const id=a.account_id||a.id; const t=String(a.account_type||(a.is_demo?'demo':'real')).toLowerCase(); return <option key={id} value={id}>{t==='demo'?'Demo':'Real'} · {a.currency||'USD'} · {id}</option>;})}</select><span className="account-status">{status}</span></div>}
+    {error&&<div className="error-banner">{error}</div>}{tradeMessage&&<div className="trade-banner">{tradeMessage}</div>}
+    <nav className="tabs">{['Dashboard','Bot Builder','Chart','Tutorials'].map(t=><button key={t} className={active===t?'tab active':'tab'} onClick={()=>setActive(t)}>{t}</button>)}</nav>
+    <main className="workspace"><section className="welcome-card"><div>{status}</div><h1>{active}</h1>{session.token&&selectedAccount&&<div className="live-account"><strong>{isDemo?'Demo account':'Real account'}</strong><span>{currency} {Number(amount)||amount}</span></div>}{tick&&<div>R_100: {tick.quote}</div>}{contract&&<div>Contract: {contract.contract_id||contract.transaction_id}</div>}{contractState&&<div>Contract status: <strong>{contractState}</strong>{contractProfit!==null&&<> · {contractProfit}</>}</div>}<p>{session.token?'Authenticated Deriv account session connected.':'Connect your Deriv account to load live balances and trading access.'}</p></section>
+      {active==='Bot Builder'&&<section className="welcome-card"><h2>Live Deriv Trade</h2><p>R_100 · CALL · 1 {currency} · 5 ticks</p><button className="run-button" disabled={tradeBusy||!session.token||!selectedAccount} onClick={requestTrade}>{tradeBusy?'Working…':'Request Proposal & Buy'}</button>{contract?.contract_id&&contractState==='open'&&<button className="top-action" disabled={tradeBusy} onClick={sellContract}>Sell Contract</button>}<small>This sends an order to the selected Demo or Real account. Test on Demo before using Real.</small></section>}</main>
+    <footer className="runbar"><button className="run-button" disabled={!session.token||tradeBusy} onClick={()=>setBotState(botState==='running'?'paused':'running')}>{botState==='running'?'⏸ Pause':'▶ Run'}</button><div className="run-status">{botState}</div></footer>
   </div>;
 }
-
 createRoot(document.getElementById('root')).render(<App />);
